@@ -60,9 +60,15 @@ cp .env.example .env
 # Edit .env — fill in GMAIL_USER and GMAIL_APP_PASSWORD
 # 編輯 .env — 填入 GMAIL_USER 和 GMAIL_APP_PASSWORD
 
-# 4. Run (IMAP mode, no extra install needed) / 執行（IMAP 模式，無需額外安裝）
-export $(cat .env | xargs)
-python fetcher.py
+# 4a. IMAP mode — no extra install needed / IMAP 模式，無需額外安裝
+pip install python-dotenv   # optional but recommended / 選裝，裝了就不用手動 export
+python3 fetcher.py
+
+# 4b. OAuth mode — install dependencies first / OAuth 模式，先安裝依賴
+pip install google-auth-oauthlib google-api-python-client python-dotenv
+# Then set AUTH_METHOD=oauth in .env, place credentials.json in the project root
+# 在 .env 設定 AUTH_METHOD=oauth，並將 credentials.json 放在專案根目錄
+python3 fetcher.py
 
 # Output / 輸出: ./downloads/永豐銀行_銀行對帳單_2026_02.pdf
 ```
@@ -70,7 +76,7 @@ python fetcher.py
 Preview matched emails without downloading / 預覽匹配信件不下載：
 
 ```bash
-python fetcher.py --dry-run --verbose
+python3 fetcher.py --dry-run --verbose
 ```
 
 ---
@@ -92,7 +98,7 @@ python fetcher.py --dry-run --verbose
 
 1. Create a project in [Google Cloud Console](https://console.cloud.google.com/) / 在 Google Cloud Console 建立專案
 2. Enable the **Gmail API** / 啟用 Gmail API
-3. Create OAuth credentials (Desktop app) → download `credentials.json` / 建立 OAuth 憑證（桌面應用程式）→ 下載 `credentials.json`
+3. Create OAuth credentials (Desktop app) → download `credentials.json` → **place it in the project root** / 建立 OAuth 憑證（桌面應用程式）→ 下載 `credentials.json` → **放在專案根目錄**
 4. Install dependencies / 安裝依賴：`pip install google-auth-oauthlib google-api-python-client`
 5. Set `AUTH_METHOD=oauth` in `.env`
 6. First run opens a browser for authorization → generates `token.json` / 第一次執行會開啟瀏覽器授權 → 產生 `token.json`
@@ -139,10 +145,19 @@ python fetcher.py --dry-run --verbose
 
 **Filename format / 檔名格式**: `{short_name}_{doc_type}_{YYYY}_{MM}.pdf`
 
+Month is always zero-padded (`_02_` not `_2_`). `subject_date_pattern` captures raw digits; the fetcher normalises them automatically.
+月份固定補零（`_02_` 而非 `_2_`）。`subject_date_pattern` 擷取原始數字，程式自動補零。
+
 Examples / 範例:
 - `永豐銀行_銀行對帳單_2026_02.pdf`
 - `永豐銀行_信用卡對帳單_2026_02.pdf`
 - `MyBank_CreditCard_2026_02.pdf`
+
+> **Note**: Each `short_name` must be unique across banks, as it is used as the filename prefix.
+> If a bank re-sends a statement (e.g. a correction), the replacement email has a different UID and will be downloaded again — this is intentional.
+>
+> **注意**：每個 `short_name` 必須唯一，因為它用作檔名前綴。
+> 若銀行補發對帳單（例如更正版），補發郵件的 UID 不同，會被重新下載 — 此為預期行為。
 
 ---
 

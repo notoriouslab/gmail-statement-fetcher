@@ -1,0 +1,17 @@
+# ── gmail-statement-fetcher dependencies ──────────────────────────────────────
+#
+# IMAP mode (default) uses Python stdlib only — no pip install needed.
+# ZIP extraction also uses stdlib zipfile — no extra install needed.
+#
+# Uncomment the lines below for the features you need, then run:
+#   pip install -r requirements.txt
+#
+# ── OAuth mode ────────────────────────────────────────────────────────────────
+# google-auth-oauthlib~=1.0
+# google-api-python-client~=2.0
+#
+# ── PDF decryption (password-protected PDFs) ──────────────────────────────────
+# pikepdf~=9.0
+#
+# ── Auto-load .env file ───────────────────────────────────────────────────────
+# python-dotenv~=1.0

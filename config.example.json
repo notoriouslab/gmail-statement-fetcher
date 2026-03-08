@@ -1,0 +1,84 @@
+{
+  "banks": {
+    "sinopac": {
+      "name": "永豐銀行",
+      "short_name": "永豐銀行",
+      "imap_search": {
+        "sender_keywords": ["sinopac.com"],
+        "subject_keywords": ["電子綜合對帳單", "信用卡", "證券"]
+      },
+      "doc_type_rules": [
+        {"keyword": "信用卡",       "type": "信用卡對帳單"},
+        {"keyword": "證券",         "type": "證券對帳單"},
+        {"keyword": "電子綜合對帳單", "type": "銀行對帳單"}
+      ],
+      "default_doc_type": "對帳單",
+      "subject_date_pattern": "(\\d{4})年(\\d{1,2})月"
+    },
+    "ctbc": {
+      "name": "中國信託銀行",
+      "short_name": "中國信託",
+      "imap_search": {
+        "sender_keywords": ["ctbcbank.com"],
+        "subject_keywords": ["中國信託銀行電子對帳單"]
+      },
+      "doc_type_rules": [
+        {"keyword": "中國信託銀行電子對帳單", "type": "銀行對帳單"}
+      ],
+      "default_doc_type": "對帳單",
+      "subject_date_pattern": "(\\d{4})年(\\d{1,2})月"
+    },
+    "mega": {
+      "name": "兆豐銀行",
+      "short_name": "兆豐銀行",
+      "imap_search": {
+        "sender_keywords": ["megabank.com.tw"],
+        "subject_keywords": ["電子帳單", "信用卡對帳單"]
+      },
+      "doc_type_rules": [
+        {"keyword": "信用卡對帳單", "type": "信用卡對帳單"},
+        {"keyword": "電子帳單",     "type": "銀行對帳單"}
+      ],
+      "default_doc_type": "對帳單",
+      "subject_date_pattern": "(\\d{4})年(\\d{1,2})月"
+    },
+    "taishin": {
+      "name": "台新銀行",
+      "short_name": "台新銀行",
+      "imap_search": {
+        "sender_keywords": ["taishinbank.com.tw"],
+        "subject_keywords": ["電子帳單", "信用卡"]
+      },
+      "doc_type_rules": [
+        {"keyword": "信用卡",   "type": "信用卡對帳單"},
+        {"keyword": "電子帳單", "type": "銀行對帳單"}
+      ],
+      "default_doc_type": "對帳單",
+      "subject_date_pattern": "(\\d{4})年(\\d{1,2})月"
+    },
+    "_example_en": {
+      "_comment": "English example — remove the leading underscore to activate",
+      "name": "My Bank",
+      "short_name": "MyBank",
+      "imap_search": {
+        "sender_keywords": ["mybank.com"],
+        "subject_keywords": ["e-Statement", "monthly statement"],
+        "exclude_attachment_patterns": ["terms", "privacy"]
+      },
+      "doc_type_rules": [
+        {"keyword": "credit card", "type": "CreditCard"},
+        {"keyword": "e-Statement", "type": "BankStatement"}
+      ],
+      "default_doc_type": "Statement",
+      "subject_date_pattern": "(\\d{4})[-/](\\d{2})",
+      "_pdf_password_comment": "Optional — set if your bank sends password-protected PDFs",
+      "pdf_password": "",
+      "_zip_password_comment": "Optional — set if attachments arrive as password-protected ZIPs",
+      "zip_password": ""
+    }
+  },
+  "global_settings": {
+    "lookback_days": 60,
+    "retention_days": 180
+  }
+}

@@ -255,6 +255,12 @@ pip install pikepdf~=9.0
 If `pikepdf` is not installed and a `pdf_password` is set, the encrypted PDF is saved as-is with a warning.
 若未安裝 `pikepdf` 但設定了 `pdf_password`，加密 PDF 會照原樣儲存並顯示警告。
 
+> ⚠️ **`config.json` contains passwords — do NOT commit it to git.**
+> It is already listed in `.gitignore`. Only `config.example.json` (no real passwords) should be version-controlled.
+>
+> ⚠️ **`config.json` 包含密碼，請勿 commit 到 git。**
+> 此檔案已列入 `.gitignore`。只有 `config.example.json`（無真實密碼）應該進版本控制。
+
 ---
 
 ## Security / 安全性

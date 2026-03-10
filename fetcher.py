@@ -281,20 +281,22 @@ def save_pdf(bank_cfg, payload_bytes, subject, date_str, output_dir, dry_run=Fal
         subject, date_str,
         bank_cfg.get("subject_date_pattern"),
     )
-    save_path = resolve_save_path(output_dir, norm_name)
     if dry_run:
-        log.info("   [DRY RUN] Would save: %s", save_path.name)
-    else:
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(dir=str(save_path.parent), suffix=".tmp")
-        try:
-            with os.fdopen(fd, "wb") as f:
-                f.write(payload_bytes)
-            os.replace(tmp, str(save_path))
-        except Exception:
-            os.unlink(tmp)
-            raise
-        log.info("   ✅ Saved: %s", save_path.name)
+        log.info("   [DRY RUN] Would save: %s", norm_name)
+        return Path(output_dir) / norm_name
+
+    # Ensure directory exists before resolve_save_path tries os.open() inside it
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    save_path = resolve_save_path(output_dir, norm_name)
+    fd, tmp = tempfile.mkstemp(dir=str(save_path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(payload_bytes)
+        os.replace(tmp, str(save_path))
+    except Exception:
+        os.unlink(tmp)
+        raise
+    log.info("   ✅ Saved: %s", save_path.name)
     return save_path
 
 

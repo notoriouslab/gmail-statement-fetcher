@@ -163,7 +163,10 @@ def build_normalized_filename(short_name, doc_type_rules, default_type, subject,
     ym = None
 
     if subject_date_pattern:
-        m = re.search(subject_date_pattern, subject)
+        try:
+            m = re.search(subject_date_pattern, subject)
+        except re.error:
+            m = None
         if m:
             try:
                 year, month = int(m.group(1)), int(m.group(2))
@@ -192,12 +195,21 @@ def build_normalized_filename(short_name, doc_type_rules, default_type, subject,
 
 
 def resolve_save_path(output_dir, norm_name):
-    """Return a conflict-free save path (appends _1, _2 … if file exists)."""
+    """Return a conflict-free save path (appends _1, _2 … if file exists).
+
+    Uses O_CREAT|O_EXCL probe to eliminate TOCTOU race between exists() and write.
+    """
     save_path = Path(output_dir) / norm_name
-    idx = 1
-    while save_path.exists():
-        save_path = Path(output_dir) / f"{norm_name[:-4]}_{idx}.pdf"
-        idx += 1
+    for idx in range(0, 1000):
+        candidate = save_path if idx == 0 else Path(output_dir) / f"{norm_name[:-4]}_{idx}.pdf"
+        try:
+            fd = os.open(str(candidate), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            os.close(fd)
+            # Placeholder created atomically; caller will os.replace() over it
+            return candidate
+        except FileExistsError:
+            continue
+    # Fallback (should never happen with 1000 slots)
     return save_path
 
 
@@ -584,7 +596,7 @@ def _walk_parts_oauth(parts, bank_cfg, subject, date_str, output_dir,
         if not filename.lower().endswith((".pdf", ".zip")):
             continue
         if any(p.lower() in filename.lower() for p in exclude):
-            log.info("   ⏩ Skipping excluded: %s", filename)
+            log.info("   ⏩ Skipping excluded: %s", _sanitize_for_log(filename))
             continue
 
         att_id = part.get("body", {}).get("attachmentId")
@@ -756,6 +768,16 @@ def main():
         log.error("Cannot load config from %s", os.path.basename(args.config))
         sys.exit(1)
     _warn_config_secrets(config)
+
+    # Pre-validate regex patterns in bank configs
+    for key, bank in config.get("banks", {}).items():
+        pat = bank.get("subject_date_pattern")
+        if pat:
+            try:
+                re.compile(pat)
+            except re.error as e:
+                log.error("Invalid regex in banks.%s.subject_date_pattern: %r — %s", key, pat, e)
+                sys.exit(1)
 
     if args.dry_run:
         log.info("=== DRY RUN — no files will be written ===")

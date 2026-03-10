@@ -35,6 +35,7 @@ import logging
 import tempfile
 import datetime
 import re
+import hashlib
 import argparse
 import base64
 from email.header import decode_header
@@ -81,6 +82,16 @@ def _sanitize_for_log(s):
 
 
 log = logging.getLogger("fetcher")
+
+
+def _subject_hash(subject):
+    """Return a short SHA-256 hash of the email subject for dedup records.
+
+    We store only a hash (not the raw subject) because subjects may contain
+    personally identifiable information (name, account numbers, card suffixes).
+    12 hex chars = 48 bits — collision-free for any realistic mailbox size.
+    """
+    return hashlib.sha256(subject.encode("utf-8", errors="replace")).hexdigest()[:12]
 
 
 def _setup_logging(verbose: bool = False):
@@ -221,7 +232,15 @@ def match_email(from_addr, subject, banks):
         if bank_id.startswith("_"):
             continue
         rules      = bank_cfg.get("imap_search", {})
-        sender_ok  = any(k.lower() in from_addr.lower() for k in rules.get("sender_keywords", []))
+        # Use '@' or '.' boundary to prevent partial domain matches
+        # (e.g. "bank.com" should not match "mybank.com", but "sinopac.com" matches "@sinopac.com.tw")
+        from_lower = from_addr.lower()
+        sender_ok  = any(
+            k.lower() in from_lower and (
+                f"@{k.lower()}" in from_lower or f".{k.lower()}" in from_lower
+            )
+            for k in rules.get("sender_keywords", [])
+        )
         subject_ok = any(k.lower() in subject.lower()   for k in rules.get("subject_keywords", []))
         if sender_ok and subject_ok:
             return bank_id, bank_cfg
@@ -250,7 +269,14 @@ def save_pdf(bank_cfg, payload_bytes, subject, date_str, output_dir, dry_run=Fal
         log.info("   [DRY RUN] Would save: %s", save_path.name)
     else:
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        save_path.write_bytes(payload_bytes)
+        fd, tmp = tempfile.mkstemp(dir=str(save_path.parent), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(payload_bytes)
+            os.replace(tmp, str(save_path))
+        except Exception:
+            os.unlink(tmp)
+            raise
         log.info("   ✅ Saved: %s", save_path.name)
     return save_path
 
@@ -379,8 +405,11 @@ def fetch_imap(config, output_dir, uid_store_path, dry_run=False):
 
     mail = None
     try:
-        log.info("[IMAP] Connecting as %s ...", username)
+        log.info("[IMAP] Connecting as %s*** ...", username[:3])
         mail = imaplib.IMAP4_SSL("imap.gmail.com", timeout=30)
+        # Set socket timeout for all subsequent operations (fetch, search).
+        # The constructor timeout only covers the initial connection handshake.
+        mail.socket().settimeout(300)  # 5 min — large attachments can be slow
         mail.login(username, password)
         mail.select("inbox")
 
@@ -454,7 +483,7 @@ def fetch_imap(config, output_dir, uid_store_path, dry_run=False):
                 if success and not dry_run:
                     processed_uids[uid] = {
                         "bank": bank_cfg["name"],
-                        "subject": subject,
+                        "subject_hash": _subject_hash(subject),
                         "date": date_str,
                         "processed_at": datetime.datetime.now(
                             tz=datetime.timezone.utc).isoformat(),
@@ -499,11 +528,11 @@ def _build_oauth_service(credentials_path, token_path):
             except Exception as e:
                 log.error("Token refresh failed: %s", e)
                 log.error("Your token may have been revoked. Delete %s and re-run "
-                          "to re-authorize.", token_path)
+                          "to re-authorize.", os.path.basename(token_path))
                 sys.exit(1)
         else:
             if not Path(credentials_path).exists():
-                log.error("credentials.json not found at %s", credentials_path)
+                log.error("credentials.json not found at %s", os.path.basename(credentials_path))
                 log.error("Download from: Google Cloud Console → APIs & Services → Credentials")
                 sys.exit(1)
             # Detect headless environments (Linux without DISPLAY, or SSH session)
@@ -530,7 +559,8 @@ def _build_oauth_service(credentials_path, token_path):
             os.chmod(token_path, 0o600)
         except OSError:
             pass  # non-Unix filesystem (e.g. FAT32 on Windows) — best-effort
-        log.info("[OAuth] Token saved to %s (permissions: 0600) — keep this file secret.", token_path)
+        log.info("[OAuth] Token saved to %s (permissions: 0600) — keep this file secret.",
+                 os.path.basename(token_path))
 
     return build("gmail", "v1", credentials=creds)
 
@@ -570,8 +600,10 @@ def _walk_parts_oauth(parts, bank_cfg, subject, date_str, output_dir,
 
 
 def fetch_oauth(config, output_dir, uid_store_path, dry_run=False):
-    credentials_path = os.environ.get("OAUTH_CREDENTIALS", "./credentials.json")
-    token_path       = os.environ.get("OAUTH_TOKEN",       "./token.json")
+    # Default to script directory (not cwd) so cron jobs from any directory
+    # still find the credential files next to fetcher.py.
+    credentials_path = os.environ.get("OAUTH_CREDENTIALS", str(_HERE / "credentials.json"))
+    token_path       = os.environ.get("OAUTH_TOKEN",       str(_HERE / "token.json"))
 
     banks      = config.get("banks", {})
     global_cfg = config.get("global_settings", {})
@@ -638,7 +670,7 @@ def fetch_oauth(config, output_dir, uid_store_path, dry_run=False):
             if count > 0 and not dry_run:
                 processed_uids[msg_id] = {
                     "bank": bank_cfg["name"],
-                    "subject": subject,
+                    "subject_hash": _subject_hash(subject),
                     "date": date_str,
                     "processed_at": datetime.datetime.now(
                         tz=datetime.timezone.utc).isoformat(),
@@ -660,6 +692,27 @@ def fetch_oauth(config, output_dir, uid_store_path, dry_run=False):
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
+def _warn_config_secrets(config):
+    """Warn if config.json contains non-empty passwords.
+
+    Passwords in a JSON file risk accidental git commit or sharing.
+    Environment variables (PDF_PASSWORD, ZIP_PASSWORD) are a safer alternative.
+    """
+    for bank_id, bank_cfg in config.get("banks", {}).items():
+        if bank_id.startswith("_"):
+            continue
+        for key in ("pdf_password", "zip_password"):
+            val = bank_cfg.get(key)
+            if val:
+                log.warning(
+                    "⚠️  Bank '%s' has %s in config.json. "
+                    "Consider using environment variables instead "
+                    "(e.g. %s_%s) to avoid accidental exposure.",
+                    bank_id, key,
+                    bank_id.upper(), key.upper(),
+                )
+
 
 def main():
     # Load .env file if python-dotenv is installed — silently skip if not.
@@ -695,8 +748,9 @@ def main():
 
     config = load_json(args.config)
     if not config:
-        log.error("Cannot load config from %s", args.config)
+        log.error("Cannot load config from %s", os.path.basename(args.config))
         sys.exit(1)
+    _warn_config_secrets(config)
 
     if args.dry_run:
         log.info("=== DRY RUN — no files will be written ===")
@@ -729,7 +783,7 @@ def main():
                     "Delete it to avoid re-downloading already-processed emails.",
                     "imap" if stored_is_imap else "oauth",
                     auth_method,
-                    uid_store_path,
+                    os.path.basename(str(uid_store_path)),
                 )
 
     if not args.dry_run:

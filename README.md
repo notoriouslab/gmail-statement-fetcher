@@ -6,6 +6,8 @@ Automatically download bank/financial statement PDFs from Gmail — config-drive
 
 **Requires Python 3.9+** · Part of the [notoriouslab](https://github.com/notoriouslab) open-source toolkit.
 
+任何 AI agent 框架都可以透過 shell 呼叫，附帶 `SKILL.md` 讓 [OpenClaw](https://openclaw.ai/) 直接整合使用。
+
 ---
 
 ## Why This Tool / 為什麼選這個
@@ -24,7 +26,9 @@ This one is **config-driven**: add any bank without touching code.
 | PDF decryption / PDF 解密 | ✅ optional pikepdf |
 | Normalized filenames | ✅ `永豐銀行_信用卡對帳單_2026_02.pdf` |
 | Dry-run preview | ✅ `--dry-run` |
-| Security hardened | ✅ token 0o600, log sanitisation |
+| Atomic PDF writes | ✅ `tmpfile` + `os.replace()` |
+| Privacy-safe dedup | ✅ subject hashes, no PII stored |
+| Security hardened | ✅ token 0o600, log sanitisation, username masked |
 
 ---
 
@@ -38,7 +42,9 @@ This one is **config-driven**: add any bank without touching code.
 - **ZIP extraction / ZIP 解壓縮**: stdlib `zipfile`, supports per-bank `zip_password`, ZIP bomb–protected (100 MB cap)
 - **PDF decryption / PDF 解密**: optional `pikepdf`; supports per-bank `pdf_password`; skips gracefully if pikepdf not installed
 - **Dry-run mode / 預覽模式**: `--dry-run` shows matched emails and filenames without writing anything
-- **Security hardened / 安全強化**: `token.json` saved at `0o600`, log injection stripped, ZIP decompression capped at 100 MB
+- **Atomic writes / 原子寫入**: all PDF saves use `tempfile.mkstemp` + `os.replace()` — no partial files on interruption
+- **Privacy-safe dedup / 隱私安全去重**: `.processed_uids.json` stores subject hashes (SHA-256), not raw email subjects
+- **Security hardened / 安全強化**: `token.json` saved at `0o600`, Gmail username masked in logs, sender domain boundary matching, log injection stripped, ZIP decompression capped at 100 MB, IMAP socket timeout (300s), config password warning
 - **Zero stdlib-only for IMAP mode**: no `pip install` needed for basic use
 
 ---
@@ -266,9 +272,14 @@ If `pikepdf` is not installed and a `pdf_password` is set, the encrypted PDF is 
 ## Security / 安全性
 
 - `token.json` is saved with `0o600` permissions / 以 `0o600` 權限儲存
-- ZIP decompression capped at 100 MB to prevent ZIP bombs / ZIP 解壓縮上限 100 MB，防止 ZIP 炸彈
-- Email subjects are sanitised before logging to prevent log injection / 郵件主旨記錄前會清除控制字元，防止 log 注入
-- Sender matching relies on Gmail's spam/phishing filters as first-line defense / 寄件人比對依賴 Gmail 的垃圾郵件過濾作為第一道防線
+- PDF writes use atomic write (`tmpfile` + `os.replace`) — no partial files / PDF 原子寫入，不會產生半殘檔案
+- `.processed_uids.json` stores subject hashes (SHA-256), not raw subjects / 去重記錄只存主旨雜湊，不存原始主旨
+- Gmail username masked in logs (first 3 chars + `***`) / 日誌中 Gmail 帳號只顯示前 3 字元
+- Sender matching uses `@`/`.` domain boundary to reduce false positives / 寄件人比對使用域名邊界防止誤匹配
+- IMAP socket timeout (300s) prevents indefinite hangs / IMAP 連線逾時防止無限等待
+- ZIP decompression capped at 100 MB to prevent ZIP bombs / ZIP 解壓縮上限 100 MB
+- Email subjects are sanitised before logging to prevent log injection / 主旨記錄前清除控制字元
+- Startup warns if `pdf_password`/`zip_password` found in `config.json` / 啟動時警告 config 中的明文密碼
 
 See [SECURITY.md](SECURITY.md) for the full security policy.
 完整安全政策請見 [SECURITY.md](SECURITY.md)。

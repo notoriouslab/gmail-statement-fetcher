@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-gmail-statement-fetcher v1.0.0
+gmail-statement-fetcher v1.0.1
 Automatically download bank/financial statement PDFs from Gmail.
 Requires Python 3.9+
 
@@ -26,6 +26,11 @@ Environment variables (shared):
 
 import os
 import sys
+
+if sys.version_info < (3, 9):
+    sys.exit("gmail-statement-fetcher requires Python 3.9+. "
+             f"You are running {sys.version.split()[0]}.")
+
 import io
 import json
 import zipfile
@@ -741,7 +746,7 @@ def main():
                         help="Preview matched emails and filenames without downloading")
     parser.add_argument("--verbose",    action="store_true",
                         help="Enable debug logging")
-    parser.add_argument("--version",    action="version", version="gmail-statement-fetcher 1.0.0")
+    parser.add_argument("--version",    action="version", version="gmail-statement-fetcher 1.0.1")
     args = parser.parse_args()
 
     _setup_logging(args.verbose)

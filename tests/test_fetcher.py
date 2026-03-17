@@ -1,14 +1,15 @@
 """Tests for gmail-statement-fetcher core logic.
 
 Covers the pure-Python functions that don't require a live Gmail connection:
-  - _imap_since_date      — locale-safe date formatting
-  - _sanitize_for_log     — control-character stripping
-  - _subject_hash         — stable SHA-256 dedup key
-  - match_email           — sender/subject matching with domain boundary logic
+  - _imap_since_date        — locale-safe date formatting
+  - _sanitize_for_log       — control-character stripping
+  - _subject_hash           — stable SHA-256 dedup key
+  - match_email             — sender/subject matching with domain boundary logic
   - build_normalized_filename — date extraction + doc_type rules + filename assembly
-  - prune_processed_uids  — retention-based record pruning
+  - prune_processed_uids    — retention-based record pruning
   - _resolve_bank_passwords — env var override for pdf/zip passwords
   - _decrypt_pdf_if_needed  — no-password pass-through; pikepdf-unavailable fallback
+  - save_pdf                — placeholder cleanup on write failure; dry_run conflict hint
 """
 
 import datetime
@@ -415,3 +416,76 @@ class TestDecryptPdfIfNeeded:
         data = b"%PDF-1.4 fake encrypted pdf"
         result = fetcher._decrypt_pdf_if_needed(data, "wrongpassword")
         assert result is data
+
+
+# ---------------------------------------------------------------------------
+# save_pdf — placeholder cleanup + dry_run conflict hint
+# ---------------------------------------------------------------------------
+
+DUMMY_BANK_CFG = {
+    "short_name": "TestBank",
+    "doc_type_rules": [],
+    "default_doc_type": "Statement",
+    "subject_date_pattern": None,
+}
+
+
+class TestSavePdf:
+    def test_placeholder_cleaned_up_on_write_failure(self, tmp_path, monkeypatch):
+        """If writing fails after resolve_save_path creates a placeholder,
+        both the placeholder and the temp file must be removed."""
+        # Patch os.fdopen to raise immediately after mkstemp succeeds
+        real_fdopen = os.fdopen
+
+        def fail_fdopen(fd, *args, **kwargs):
+            os.close(fd)  # avoid fd leak in test
+            raise OSError("simulated write failure")
+
+        monkeypatch.setattr(os, "fdopen", fail_fdopen)
+
+        with pytest.raises(OSError):
+            fetcher.save_pdf(
+                DUMMY_BANK_CFG,
+                b"%PDF-1.4 content",
+                "Monthly Statement",
+                "Mon, 03 Feb 2026 12:00:00 +0000",
+                str(tmp_path),
+                dry_run=False,
+            )
+
+        # No leftover files (no placeholder, no tmp)
+        remaining = list(tmp_path.iterdir())
+        assert remaining == [], f"Leftover files: {remaining}"
+
+    def test_dry_run_no_conflict_logs_plain(self, tmp_path, caplog):
+        import logging
+        with caplog.at_level(logging.INFO):
+            fetcher.save_pdf(
+                DUMMY_BANK_CFG,
+                b"%PDF content",
+                "Monthly Statement",
+                "Mon, 03 Feb 2026 12:00:00 +0000",
+                str(tmp_path),
+                dry_run=True,
+            )
+        assert any("_N suffix" not in r.message and "Would save" in r.message
+                   for r in caplog.records)
+        # Nothing written
+        assert list(tmp_path.iterdir()) == []
+
+    def test_dry_run_conflict_logs_suffix_hint(self, tmp_path, caplog):
+        import logging
+        # Pre-create the file so a conflict exists
+        norm = "TestBank_Statement_2026_02.pdf"
+        (tmp_path / norm).write_bytes(b"existing")
+
+        with caplog.at_level(logging.INFO):
+            fetcher.save_pdf(
+                DUMMY_BANK_CFG,
+                b"%PDF content",
+                "Monthly Statement",
+                "Mon, 03 Feb 2026 12:00:00 +0000",
+                str(tmp_path),
+                dry_run=True,
+            )
+        assert any("_N suffix" in r.message for r in caplog.records)

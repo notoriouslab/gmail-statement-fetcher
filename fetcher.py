@@ -294,8 +294,13 @@ def save_pdf(bank_cfg, payload_bytes, subject, date_str, output_dir, dry_run=Fal
         bank_cfg.get("subject_date_pattern"),
     )
     if dry_run:
-        log.info("   [DRY RUN] Would save: %s", norm_name)
-        return Path(output_dir) / norm_name
+        target = Path(output_dir) / norm_name
+        if target.exists():
+            log.info("   [DRY RUN] Would save: %s (file exists — actual name may have _N suffix)",
+                     norm_name)
+        else:
+            log.info("   [DRY RUN] Would save: %s", norm_name)
+        return target
 
     # Ensure directory exists before resolve_save_path tries os.open() inside it
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -306,7 +311,16 @@ def save_pdf(bank_cfg, payload_bytes, subject, date_str, output_dir, dry_run=Fal
             f.write(payload_bytes)
         os.replace(tmp, str(save_path))
     except Exception:
-        os.unlink(tmp)
+        # Clean up temp write file
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        # Clean up the 0-byte placeholder left by resolve_save_path
+        try:
+            os.unlink(str(save_path))
+        except OSError:
+            pass
         raise
     log.info("   ✅ Saved: %s", save_path.name)
     return save_path

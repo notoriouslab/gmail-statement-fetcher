@@ -1,85 +1,61 @@
 # gmail-statement-fetcher
 
-Automatically download bank/financial statement PDFs from Gmail — config-driven, deduplication built-in, dual IMAP/OAuth support.
-
 自動從 Gmail 下載銀行對帳單 PDF，設定驅動、內建去重、支援 IMAP 與 OAuth 雙模式。
 
-**Requires Python 3.9+** · Part of the [notoriouslab](https://github.com/notoriouslab) open-source toolkit.
+**需要 Python 3.9+** · 屬於 [notoriouslab](https://github.com/notoriouslab) 開源工具組的一員。
 
-任何 AI agent 框架都可以透過 shell 呼叫，附帶 `SKILL.md` 讓 [OpenClaw](https://openclaw.ai/) 直接整合使用。
-
----
-
-## Why This Tool / 為什麼選這個
-
-Most Gmail-based statement tools are one-off scripts tied to a single bank.
-This one is **config-driven**: add any bank without touching code.
-大多數 Gmail 對帳單工具都是單一銀行的臨時腳本。這個工具是**設定驅動**的：新增任何銀行都不需要修改程式碼。
-
-| | gmail-statement-fetcher |
-|---|---|
-| Multi-bank / 多銀行 | ✅ JSON config, no code changes |
-| Deduplication / 去重 | ✅ UID-based, never re-downloads |
-| IMAP (headless) | ✅ stdlib only, zero install |
-| OAuth 2.0 | ✅ `gmail.readonly` scope |
-| ZIP extraction / 解壓縮 | ✅ stdlib, ZIP bomb–protected |
-| PDF decryption / PDF 解密 | ✅ optional pikepdf |
-| Normalized filenames | ✅ `永豐銀行_信用卡對帳單_2026_02.pdf` |
-| Dry-run preview | ✅ `--dry-run` |
-| Atomic PDF writes | ✅ `tmpfile` + `os.replace()` |
-| Privacy-safe dedup | ✅ subject hashes, no PII stored |
-| Security hardened | ✅ token 0o600, log sanitisation, username masked |
+> [English README](README.en.md)
 
 ---
 
-## Features / 功能特色
+## 為什麼需要這個工具
 
-- **Dual auth / 雙重認證**: IMAP + App Password (headless servers) or OAuth 2.0 `gmail.readonly` (personal use)
-- **Config-driven rules / 設定驅動規則**: add any bank without touching code — sender keywords, subject keywords, doc type rules all in JSON
-- **Normalized filenames / 標準化檔名**: `永豐銀行_信用卡對帳單_2026_02.pdf` — readable, sortable, dedup-friendly
-- **Smart date extraction / 智慧日期擷取**: extracts statement period from subject line (e.g. `2026年2月`) before falling back to email Date header
-- **Deduplication / 去重機制**: UID-based, never downloads the same email twice; pruned automatically after `retention_days`
-- **ZIP extraction / ZIP 解壓縮**: stdlib `zipfile`, supports per-bank `zip_password`, ZIP bomb–protected (100 MB cap)
-- **PDF decryption / PDF 解密**: optional `pikepdf`; supports per-bank `pdf_password`; skips gracefully if pikepdf not installed
-- **Dry-run mode / 預覽模式**: `--dry-run` shows matched emails and filenames without writing anything
-- **Atomic writes / 原子寫入**: all PDF saves use `tempfile.mkstemp` + `os.replace()` — no partial files on interruption
-- **Privacy-safe dedup / 隱私安全去重**: `.processed_uids.json` stores subject hashes (SHA-256), not raw email subjects
-- **Security hardened / 安全強化**: `token.json` saved at `0o600`, Gmail username masked in logs, sender domain boundary matching, log injection stripped, ZIP decompression capped at 100 MB, IMAP socket timeout (300s), config password warning
-- **Zero stdlib-only for IMAP mode**: no `pip install` needed for basic use
+大多數 Gmail 對帳單工具都是單一銀行的臨時腳本，換一家銀行就得改程式碼。這個工具是**設定驅動**的：新增任何銀行只要在 JSON 加一個 entry，不需要動程式碼。任何 AI agent 框架都可以透過 shell 呼叫，附帶 `SKILL.md` 讓 [OpenClaw](https://openclaw.ai/) 直接整合使用。
+
+| 特色 | 說明 |
+|------|------|
+| 多銀行支援 | JSON 設定驅動，新增銀行不改程式碼 |
+| 去重機制 | UID-based，同一封信永遠只下載一次 |
+| IMAP 模式 | 純標準函式庫，零安裝，適合無頭伺服器 |
+| OAuth 2.0 | `gmail.readonly` 最小權限範圍 |
+| ZIP 解壓縮 | 標準函式庫，含 ZIP bomb 防護（100 MB 上限） |
+| PDF 解密 | 選裝 pikepdf，密碼存 `.env` 不進 config |
+| 標準化檔名 | `永豐銀行_信用卡對帳單_2026_02.pdf` |
+| 預覽模式 | `--dry-run` 先看匹配結果再下載 |
+| 原子寫入 | `tempfile` + `os.replace()`，不產生半殘檔案 |
+| 隱私安全去重 | 去重記錄只存主旨 SHA-256 雜湊，不存原始主旨 |
+| 安全強化 | token 0o600 權限、日誌遮罩帳號、log injection 防護 |
 
 ---
 
-## Quick Start / 快速開始
+## 快速開始
 
 ```bash
-# 1. Clone
+# 1. 下載
 git clone https://github.com/notoriouslab/gmail-statement-fetcher.git
 cd gmail-statement-fetcher
 
-# 2. Copy and edit config / 複製並編輯設定
+# 2. 複製並編輯設定
 cp config.example.json config.json
-# Edit config.json — add your bank's sender domain and subject keywords
 # 編輯 config.json — 新增你銀行的寄件人網域與主旨關鍵字
 
-# 3. Set credentials / 設定認證資訊
+# 3. 設定認證資訊
 cp .env.example .env
-# Edit .env — fill in GMAIL_USER and GMAIL_APP_PASSWORD
 # 編輯 .env — 填入 GMAIL_USER 和 GMAIL_APP_PASSWORD
 
-# 4a. IMAP mode — no extra install needed / IMAP 模式，無需額外安裝
-pip install python-dotenv   # optional but recommended / 選裝，裝了就不用手動 export
+# 4a. IMAP 模式（不需要額外安裝）
+pip install python-dotenv   # 選裝，裝了就不用手動 export
 python3 fetcher.py
 
-# 4b. OAuth mode — install dependencies first / OAuth 模式，先安裝依賴
+# 4b. OAuth 模式（需安裝依賴）
 pip install google-auth-oauthlib google-api-python-client python-dotenv
-# Then set AUTH_METHOD=oauth in .env, place credentials.json in the project root
 # 在 .env 設定 AUTH_METHOD=oauth，並將 credentials.json 放在專案根目錄
 python3 fetcher.py
 
-# Output / 輸出: ./downloads/永豐銀行_銀行對帳單_2026_02.pdf
+# 輸出：./downloads/永豐銀行_銀行對帳單_2026_02.pdf
 ```
 
-Preview matched emails without downloading / 預覽匹配信件不下載：
+預覽匹配結果不實際下載：
 
 ```bash
 python3 fetcher.py --dry-run --verbose
@@ -87,227 +63,222 @@ python3 fetcher.py --dry-run --verbose
 
 ---
 
-## Authentication / 認證方式
+## 認證方式
 
-### IMAP + App Password — recommended for servers / 伺服器推薦
+### IMAP + App Password — 伺服器推薦
 
 適合 cron 排程、無頭伺服器，無需瀏覽器，純標準函式庫。
 
-1. Enable 2FA on your Google account / 啟用 Google 帳號的兩步驗證
-2. Go to **Google Account → Security → App Passwords** / 前往**安全性 → 應用程式密碼**
-3. Create an App Password for "Mail" / 為「郵件」建立應用程式密碼
-4. Set in `.env`: `AUTH_METHOD=imap`, `GMAIL_USER`, `GMAIL_APP_PASSWORD`
+1. 啟用 Google 帳號的兩步驗證
+2. 前往**安全性 → 應用程式密碼**，為「郵件」建立應用程式密碼
+3. 在 `.env` 設定：`AUTH_METHOD=imap`、`GMAIL_USER`、`GMAIL_APP_PASSWORD`
 
-### OAuth 2.0 — recommended for personal use / 個人使用推薦
+### OAuth 2.0 — 個人使用推薦
 
 使用 `gmail.readonly` 最小權限範圍，更安全但需要第一次瀏覽器授權。
 
-1. Create a project in [Google Cloud Console](https://console.cloud.google.com/) / 在 Google Cloud Console 建立專案
-2. Enable the **Gmail API** / 啟用 Gmail API
-3. Create OAuth credentials (Desktop app) → download `credentials.json` → **place it in the project root** / 建立 OAuth 憑證（桌面應用程式）→ 下載 `credentials.json` → **放在專案根目錄**
-4. Install dependencies / 安裝依賴：`pip install google-auth-oauthlib google-api-python-client`
-5. Set `AUTH_METHOD=oauth` in `.env`
-6. First run opens a browser for authorization → generates `token.json` / 第一次執行會開啟瀏覽器授權 → 產生 `token.json`
+1. 在 [Google Cloud Console](https://console.cloud.google.com/) 建立專案
+2. 啟用 Gmail API
+3. 建立 OAuth 憑證（桌面應用程式）→ 下載 `credentials.json` → **放在專案根目錄**
+4. 安裝依賴：`pip install google-auth-oauthlib google-api-python-client`
+5. 在 `.env` 設定 `AUTH_METHOD=oauth`
+6. 第一次執行會開啟瀏覽器授權 → 產生 `token.json`
 
-> **Headless servers / 無頭伺服器**: After the first OAuth run on a local machine, copy `token.json` to your server and set `OAUTH_TOKEN=/path/to/token.json`. Keep this file backed up — losing it requires re-authorization.
->
-> 在本機完成第一次 OAuth 授權後，將 `token.json` 複製到伺服器，並設定 `OAUTH_TOKEN=/path/to/token.json`。請備份此檔案，遺失後需重新授權。
+> **無頭伺服器**：在本機完成第一次 OAuth 授權後，將 `token.json` 複製到伺服器並設定 `OAUTH_TOKEN=/path/to/token.json`。請備份此檔案，遺失後需重新授權。
 
 ---
 
-## Config Reference / 設定說明
+## 設定說明
+
+### 設定檔格式
 
 ```jsonc
 {
   "banks": {
     "my_bank": {
-      "name": "My Bank",                        // display name / 顯示名稱
-      "short_name": "MyBank",                   // used in filename / 用於檔名前綴
+      "name": "My Bank",                         // 顯示名稱
+      "short_name": "MyBank",                    // 用於檔名前綴
       "imap_search": {
-        "sender_keywords": ["mybank.com"],      // match From header / 比對寄件人
-        "subject_keywords": ["e-Statement"],    // AND logic with sender / 與寄件人 AND
-        "exclude_attachment_patterns": ["terms"] // skip matching attachments / 跳過匹配附件
+        "sender_keywords": ["mybank.com"],       // 比對寄件人（域名邊界）
+        "subject_keywords": ["e-Statement"],     // 與寄件人 AND
+        "exclude_attachment_patterns": ["terms"] // 跳過包含此關鍵字的附件
       },
-      "doc_type_rules": [                       // first match wins / 第一個匹配優先
+      "doc_type_rules": [                        // 第一個匹配優先
         {"keyword": "credit card", "type": "CreditCard"},
         {"keyword": "e-Statement", "type": "BankStatement"}
       ],
-      "default_doc_type": "Statement",          // fallback / 預設類型
-      "subject_date_pattern": "(\\d{4})年(\\d{1,2})月", // regex for YYYY/MM / 擷取日期用 regex
-      "pdf_password": "",   // optional / 選填，PDF 密碼
-      "zip_password": ""    // optional / 選填，ZIP 密碼
+      "default_doc_type": "Statement",           // 預設文件類型
+      "subject_date_pattern": "(\\d{4})年(\\d{1,2})月", // 從主旨擷取年月
+      "pdf_password": "",   // 留空，改用 .env（見下方）
+      "zip_password": ""    // 留空，改用 .env（見下方）
     }
   },
   "global_settings": {
-    "lookback_days": 60,    // scan window / 掃描天數
-    "retention_days": 180   // dedup record lifetime / 去重記錄保留天數
+    "lookback_days": 60,    // 掃描最近幾天的信件
+    "retention_days": 180   // 去重記錄保留天數
   }
 }
 ```
 
-> **Bank key naming / 銀行 key 命名**: Keys starting with `_` (e.g. `_example_en`) are ignored by the fetcher — use this for disabled or template entries.
 > 以 `_` 開頭的 key（如 `_example_en`）會被忽略，可用於停用或範本條目。
-> See `config.example.json` for ready-to-use Taiwan bank configs / 參見 `config.example.json` 內含現成的台灣銀行設定。
+> 參見 `config.example.json` 內含現成的台灣銀行設定。
 
-**Filename format / 檔名格式**: `{short_name}_{doc_type}_{YYYY}_{MM}.pdf`
+**檔名格式**：`{short_name}_{doc_type}_{YYYY}_{MM}.pdf`
 
-Month is always zero-padded (`_02_` not `_2_`). `subject_date_pattern` captures raw digits; the fetcher normalises them automatically.
 月份固定補零（`_02_` 而非 `_2_`）。`subject_date_pattern` 擷取原始數字，程式自動補零。
 
-Examples / 範例:
-- `永豐銀行_銀行對帳單_2026_02.pdf`
-- `永豐銀行_信用卡對帳單_2026_02.pdf`
-- `MyBank_CreditCard_2026_02.pdf`
+### 機密管理
 
-> **Note**: Each `short_name` must be unique across banks, as it is used as the filename prefix.
-> If a bank re-sends a statement (e.g. a correction), the replacement email has a different UID and will be downloaded again — this is intentional.
->
-> **注意**：每個 `short_name` 必須唯一，因為它用作檔名前綴。
-> 若銀行補發對帳單（例如更正版），補發郵件的 UID 不同，會被重新下載 — 此為預期行為。
+**所有密碼只能放在 `.env`，不可放在 `config.json`**。
+
+```
+# .env 範例
+GMAIL_USER=you@gmail.com
+GMAIL_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+
+# 銀行 PDF / ZIP 密碼：格式 = {銀行 key 大寫}_{PDF_PASSWORD|ZIP_PASSWORD}
+SINOPAC_PDF_PASSWORD=your-sinopac-pdf-password
+CTBC_ZIP_PASSWORD=your-ctbc-zip-password
+```
+
+env var 優先順序高於 `config.json`。`config.json` 的密碼欄位留空，設定檔就可以安全分享或進版本控制。程式啟動時若偵測到 `config.json` 含密碼會自動警告。
+
+`config.json` 和 `.env` 都已加入 `.gitignore`，只有 `config.example.json`（無真實密碼）應該進版本控制。
 
 ---
 
-## CLI Options / 命令列選項
+## ZIP 與 PDF 密碼
 
+部分銀行以密碼保護的 ZIP 或 PDF 寄送對帳單。
+
+**ZIP**（標準函式庫，不需額外安裝）：
+```bash
+# 在 .env 設定
+CTBC_ZIP_PASSWORD=your-zip-password
 ```
-python fetcher.py [options]
 
-  --config      path to config JSON                    (default: <script dir>/config.json)
-                設定檔路徑
-
-  --output-dir  directory to save PDFs                 (default: <script dir>/downloads)
-                PDF 儲存目錄
-
-  --state-file  path to UID dedup store JSON           (default: <output-dir>/.processed_uids.json)
-                UID 去重狀態檔路徑（output-dir 唯讀時使用此選項）
-
-  --auth        imap | oauth                           (overrides AUTH_METHOD env var)
-                認證方式（覆蓋 .env 中的 AUTH_METHOD）
-
-  --dry-run     preview matched emails/filenames without downloading anything
-                預覽匹配結果，不實際下載
-
-  --verbose     enable debug logging
-                啟用除錯日誌
-
-  --version     print version and exit
-                顯示版本並退出
+**PDF 解密**（需安裝 pikepdf）：
+```bash
+pip install pikepdf~=9.0
 ```
+```bash
+# 在 .env 設定
+SINOPAC_PDF_PASSWORD=your-pdf-password
+```
+
+格式：`{銀行 key 大寫}_{PDF_PASSWORD|ZIP_PASSWORD}`，優先於 `config.json` 中的設定。
+
+若未安裝 `pikepdf` 但設定了 PDF 密碼，加密 PDF 會照原樣儲存並顯示警告。
 
 ---
 
-## Cron / 自動排程
+## 命令列選項
 
-**Recommended: install python-dotenv / 推薦：安裝 python-dotenv**
+```
+python fetcher.py [選項]
+
+  --config      設定檔路徑（預設：<程式目錄>/config.json）
+  --output-dir  PDF 儲存目錄（預設：<程式目錄>/downloads）
+  --state-file  UID 去重狀態檔路徑（output-dir 唯讀時使用此選項）
+  --auth        imap | oauth（覆蓋 AUTH_METHOD env var）
+  --dry-run     預覽匹配結果，不實際下載
+  --verbose     啟用除錯日誌
+  --version     顯示版本並退出
+```
+
+### Exit Code
+
+| Code | 意義 |
+|------|------|
+| 0 | 執行完成 |
+| 1 | 執行錯誤（IMAP/OAuth 失敗、設定遺失） |
+
+---
+
+## Cron 自動排程
+
+**推薦安裝 python-dotenv**：
 
 ```bash
 pip install python-dotenv
 ```
 
-The fetcher calls `load_dotenv()` automatically — no manual `export` needed in cron.
 安裝後，`fetcher.py` 會自動讀取 `.env`，cron 裡不需要手動 `export`。
 
 ```bash
-# Run daily at 09:00 (Linux/macOS) / 每天 09:00 自動執行
+# 每天 09:00 自動執行
 0 9 * * * cd /path/to/gmail-statement-fetcher && python3 fetcher.py
 ```
 
-**Without python-dotenv / 未安裝 python-dotenv**
-
-> ⚠️  `export $(cat .env | xargs)` breaks when values contain spaces, `$`, or `#`.
-> Use a wrapper script instead / 請改用包裝腳本：
+**未安裝 python-dotenv 時，請用包裝腳本**（`export $(cat .env | xargs)` 遇到特殊字元會爆）：
 
 ```bash
 #!/bin/bash
 # run_fetcher.sh
 set -a
-# shellcheck source=.env
 source "$(dirname "$0")/.env"
 set +a
 exec python3 "$(dirname "$0")/fetcher.py" "$@"
 ```
 
-```bash
-# crontab / 排程
-0 9 * * * /path/to/gmail-statement-fetcher/run_fetcher.sh
-```
-
-`source .env` honours shell quoting, so passwords with `$`, spaces, or `#` are safe.
-`source .env` 遵守 shell 引用規則，密碼包含 `$`、空格或 `#` 都不會出問題。
-
-For Oracle/headless servers using OAuth, set `OAUTH_TOKEN` to the full path of `token.json`.
 使用 OAuth 的無頭伺服器請設定 `OAUTH_TOKEN` 指向 `token.json` 的完整路徑。
 
 ---
 
-## ZIP & PDF Password Support / ZIP 與 PDF 密碼支援
+## 安全性
 
-Some banks deliver statements as password-protected ZIPs or PDFs.
-部分銀行會以密碼保護的 ZIP 或 PDF 寄送對帳單。
+- **原子寫入**：所有 PDF 使用 `tempfile.mkstemp` + `os.replace()`，不產生半殘檔案
+- **隱私安全去重**：`.processed_uids.json` 只存主旨 SHA-256 雜湊，不存原始主旨
+- **機密隔離**：密碼只在 `.env`，啟動時自動檢查 `config.json` 是否不小心放了 secret
+- **token 權限**：`token.json` 以 `0o600` 儲存，防止多人系統上的意外讀取
+- **帳號遮罩**：日誌中 Gmail 帳號只顯示前 3 字元
+- **域名邊界比對**：寄件人使用 `@`/`.` 邊界防止誤匹配
+- **ZIP bomb 防護**：解壓縮上限 100 MB（串流計算，不信任 header 中的 file_size）
+- **log injection 防護**：主旨記錄前清除 ASCII 控制字元
 
-**ZIP** (stdlib, no install needed / 無需額外安裝):
-```jsonc
-"zip_password": "your-zip-password"
-```
+詳細安全政策請見 [SECURITY.md](SECURITY.md)。
 
-**PDF decryption** (requires pikepdf / 需安裝 pikepdf):
+---
+
+## AI Agent 整合（OpenClaw 等）
+
+標準 CLI 工具，任何 AI agent 框架都可以透過 shell 呼叫。附帶 `SKILL.md` 讓 [OpenClaw](https://openclaw.ai/) 直接整合。
+
 ```bash
-pip install pikepdf~=9.0
+# Dry-run 先確認匹配，再實際下載
+python3 fetcher.py --dry-run --verbose
+python3 fetcher.py --output-dir ./downloads
 ```
-```jsonc
-"pdf_password": "your-pdf-password"
-```
-
-If `pikepdf` is not installed and a `pdf_password` is set, the encrypted PDF is saved as-is with a warning.
-若未安裝 `pikepdf` 但設定了 `pdf_password`，加密 PDF 會照原樣儲存並顯示警告。
-
-> ⚠️ **`config.json` contains passwords — do NOT commit it to git.**
-> It is already listed in `.gitignore`. Only `config.example.json` (no real passwords) should be version-controlled.
->
-> ⚠️ **`config.json` 包含密碼，請勿 commit 到 git。**
-> 此檔案已列入 `.gitignore`。只有 `config.example.json`（無真實密碼）應該進版本控制。
 
 ---
 
-## Security / 安全性
-
-- `token.json` is saved with `0o600` permissions / 以 `0o600` 權限儲存
-- PDF writes use atomic write (`tmpfile` + `os.replace`) — no partial files / PDF 原子寫入，不會產生半殘檔案
-- `.processed_uids.json` stores subject hashes (SHA-256), not raw subjects / 去重記錄只存主旨雜湊，不存原始主旨
-- Gmail username masked in logs (first 3 chars + `***`) / 日誌中 Gmail 帳號只顯示前 3 字元
-- Sender matching uses `@`/`.` domain boundary to reduce false positives / 寄件人比對使用域名邊界防止誤匹配
-- IMAP socket timeout (300s) prevents indefinite hangs / IMAP 連線逾時防止無限等待
-- ZIP decompression capped at 100 MB to prevent ZIP bombs / ZIP 解壓縮上限 100 MB
-- Email subjects are sanitised before logging to prevent log injection / 主旨記錄前清除控制字元
-- Startup warns if `pdf_password`/`zip_password` found in `config.json` / 啟動時警告 config 中的明文密碼
-
-See [SECURITY.md](SECURITY.md) for the full security policy.
-完整安全政策請見 [SECURITY.md](SECURITY.md)。
-
----
-
-## Part of the notoriouslab Pipeline / 組合拳
+## notoriouslab 組合拳
 
 ```
-gmail-statement-fetcher   →  PDF downloads / PDF 下載
+gmail-statement-fetcher   →  從 Gmail 自動下載 PDF 對帳單
         ↓
-   doc-cleaner             →  PDF/DOCX/XLSX → structured Markdown / 結構化 Markdown
+   doc-cleaner             →  PDF/DOCX/XLSX → 結構化 Markdown
         ↓
-   personal-cfo            →  monthly audit + retirement glide path / 月度審計 + 退休滑翔路徑
+   personal-cfo            →  月度審計 + 退休軌道監控
 ```
 
-Each tool works standalone. Together they form a full personal finance automation pipeline.
 每個工具可獨立使用。合併使用則構成完整的個人財務自動化流水線。
 
 ---
 
-## Contributing / 貢獻
+## 貢獻
 
-The easiest contribution is adding a bank config entry. See [CONTRIBUTING.md](CONTRIBUTING.md).
-最簡單的貢獻方式是新增銀行設定條目，詳見 [CONTRIBUTING.md](CONTRIBUTING.md)。
+最簡單的貢獻方式是新增銀行設定條目，不需要改程式碼：
+
+1. Fork 並建立分支：`git checkout -b add-<bank-name>`
+2. 在 `config.example.json` 加入 entry
+3. 用 `python fetcher.py --dry-run` 確認匹配正確
+4. 開 PR，標題格式：`config: add <Bank Name>`
+
+詳見 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ---
 
-## License
+## 授權
 
 MIT

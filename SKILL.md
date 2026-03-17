@@ -57,6 +57,8 @@ AUTH_METHOD=oauth python3 {baseDir}/fetcher.py
 | `AUTH_METHOD` | Both | `imap` (default) or `oauth` |
 | `OAUTH_CREDENTIALS` | OAuth | Path to `credentials.json` from GCP Console |
 | `OAUTH_TOKEN` | OAuth | Path to `token.json` (auto-generated) |
+| `{BANKID}_PDF_PASSWORD` | Both | PDF decryption password for a specific bank (e.g. `SINOPAC_PDF_PASSWORD`). Takes precedence over `pdf_password` in config.json. |
+| `{BANKID}_ZIP_PASSWORD` | Both | ZIP extraction password for a specific bank (e.g. `CTBC_ZIP_PASSWORD`). Takes precedence over `zip_password` in config.json. |
 
 ## Exit codes
 

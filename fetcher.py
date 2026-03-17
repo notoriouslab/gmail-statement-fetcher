@@ -22,6 +22,11 @@ Environment variables (OAuth mode):
 
 Environment variables (shared):
     AUTH_METHOD          imap | oauth  (default: imap, overridden by --auth flag)
+
+Per-bank password overrides (replace BANKID with the key in config.json, uppercased):
+    {BANKID}_PDF_PASSWORD   PDF decryption password for that bank
+    {BANKID}_ZIP_PASSWORD   ZIP extraction password for that bank
+    e.g. SINOPAC_PDF_PASSWORD, CTBC_ZIP_PASSWORD
 """
 
 import os
@@ -179,7 +184,7 @@ def build_normalized_filename(short_name, doc_type_rules, default_type, subject,
             dt = parsedate_to_datetime(email_date_str)
             ym = f"{dt.year}_{dt.month:02d}"
         except Exception:
-            log.debug("Could not parse date header: %r", email_date_str)
+            log.debug("Could not parse date header: %r", _sanitize_for_log(email_date_str))
 
     if not ym:
         ym = datetime.date.today().strftime("%Y_%m")
@@ -215,7 +220,7 @@ def resolve_save_path(output_dir, norm_name):
 
 def prune_processed_uids(processed_uids, retention_days):
     if not retention_days:
-        return processed_uids  # 0 = keep forever
+        return dict(processed_uids)  # 0 = keep forever; return copy for consistent behaviour
     cutoff = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(days=retention_days)
     new_store, pruned = {}, 0
     for uid, meta in processed_uids.items():
@@ -244,6 +249,13 @@ def match_email(from_addr, subject, banks):
 
     Banks whose key starts with '_' (e.g. '_example_en') are skipped — they are
     template/disabled entries in the config.
+
+    Domain boundary note: matching uses '@' or '.' prefix (e.g. '@sinopac.com' or
+    '.sinopac.com') to prevent 'mybank.com' matching 'evilmybank.com'. However,
+    a keyword like 'bank.com' will still match '@bank.com.tw' because '@bank.com'
+    is a substring of '@bank.com.tw'. This is a known limitation documented in
+    SECURITY.md. Use the most specific domain possible in sender_keywords to
+    minimise false positives.
     """
     for bank_id, bank_cfg in banks.items():
         if bank_id.startswith("_"):
@@ -474,6 +486,7 @@ def fetch_imap(config, output_dir, uid_store_path, dry_run=False):
                 bank_id, bank_cfg = match_email(from_addr, subject, banks)
                 if not bank_cfg:
                     continue
+                bank_cfg = _resolve_bank_passwords(bank_id, bank_cfg)
 
                 log.info("📍 Match [%s]: %s (UID: %s)",
                          bank_cfg["name"], _sanitize_for_log(subject), uid)
@@ -672,6 +685,7 @@ def fetch_oauth(config, output_dir, uid_store_path, dry_run=False):
             bank_id, bank_cfg = match_email(from_addr, subject, banks)
             if not bank_cfg:
                 continue
+            bank_cfg = _resolve_bank_passwords(bank_id, bank_cfg)
 
             log.info("📍 Match [%s]: %s", bank_cfg["name"], _sanitize_for_log(subject))
             full_msg = service.users().messages().get(
@@ -712,6 +726,26 @@ def fetch_oauth(config, output_dir, uid_store_path, dry_run=False):
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _resolve_bank_passwords(bank_id, bank_cfg):
+    """Return a copy of bank_cfg with pdf_password/zip_password overridden by env vars.
+
+    Env var names: {BANK_ID_UPPER}_PDF_PASSWORD and {BANK_ID_UPPER}_ZIP_PASSWORD.
+    This lets users keep config.json secret-free while still supporting per-bank
+    password-protected PDFs and ZIPs.
+    """
+    prefix = bank_id.upper()
+    overrides = {}
+    for key in ("pdf_password", "zip_password"):
+        env_val = os.environ.get(f"{prefix}_{key.upper()}")
+        if env_val:
+            overrides[key] = env_val
+    if not overrides:
+        return bank_cfg
+    merged = dict(bank_cfg)
+    merged.update(overrides)
+    return merged
+
+
 def _warn_config_secrets(config):
     """Warn if config.json contains non-empty passwords.
 
@@ -726,8 +760,9 @@ def _warn_config_secrets(config):
             if val:
                 log.warning(
                     "⚠️  Bank '%s' has %s in config.json. "
-                    "Consider using environment variables instead "
-                    "(e.g. %s_%s) to avoid accidental exposure.",
+                    "Use environment variable %s_%s instead and remove it from config.json "
+                    "to avoid accidental git exposure. "
+                    "The env var takes precedence when set.",
                     bank_id, key,
                     bank_id.upper(), key.upper(),
                 )
@@ -760,7 +795,7 @@ def main():
                         help="Preview matched emails and filenames without downloading")
     parser.add_argument("--verbose",    action="store_true",
                         help="Enable debug logging")
-    parser.add_argument("--version",    action="version", version="gmail-statement-fetcher 1.0.1")
+    parser.add_argument("--version",    action="version", version="gmail-statement-fetcher 1.0.3")
     args = parser.parse_args()
 
     _setup_logging(args.verbose)

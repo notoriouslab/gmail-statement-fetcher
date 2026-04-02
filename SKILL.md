@@ -1,7 +1,7 @@
 ---
 name: gmail-statement-fetcher
 description: Automatically download bank/financial statement PDFs from Gmail via IMAP or OAuth. Config-driven bank rules, UID dedup, ZIP extraction, PDF decryption.
-metadata: {"openclaw":{"emoji":"📬","version":"1.0.1","homepage":"https://github.com/notoriouslab/gmail-statement-fetcher","requires":{"bins":["python3"],"env":["GMAIL_USER","GMAIL_APP_PASSWORD"]}}}
+metadata: {"openclaw":{"emoji":"📬","version":"1.0.2","homepage":"https://github.com/notoriouslab/gmail-statement-fetcher","requires":{"bins":["python3"],"env_via_dotenv":["GMAIL_USER","GMAIL_APP_PASSWORD"]}}}
 ---
 
 # gmail-statement-fetcher
@@ -15,16 +15,39 @@ Automatically download bank/financial statement PDFs from Gmail.
 - User asks to fetch encrypted/password-protected PDF statements
 - User wants to extract PDFs from ZIP attachments in email
 
+## Credential setup
+
+Credentials MUST be loaded from environment or secrets file — **NEVER inline passwords in shell commands**.
+
+```bash
+# Option A: .env file in the project directory (recommended)
+# Create {baseDir}/.env with:
+#   GMAIL_USER=user@gmail.com
+#   GMAIL_APP_PASSWORD=your-app-password
+# The fetcher loads .env automatically via python-dotenv.
+
+# Option B: export from secrets file
+export GMAIL_USER=$(python3 -c "import json; print(json.load(open('$HOME/.paiop_secrets.json'))['gmail_user'])")
+export GMAIL_APP_PASSWORD=$(python3 -c "import json; print(json.load(open('$HOME/.paiop_secrets.json'))['gmail_app_password'])")
+```
+
+Bank PDF/ZIP passwords follow the same pattern — use env vars or .env, never inline:
+```bash
+# In .env:
+#   SINOPAC_PDF_PASSWORD=xxx
+#   CTBC_ZIP_PASSWORD=xxx
+```
+
 ## Commands
 
 ### Fetch statements (IMAP mode, default)
 ```bash
-GMAIL_USER="user@gmail.com" GMAIL_APP_PASSWORD="xxxx" python3 {baseDir}/fetcher.py
+python3 {baseDir}/fetcher.py
 ```
 
 ### Dry run — preview matches without downloading
 ```bash
-GMAIL_USER="user@gmail.com" GMAIL_APP_PASSWORD="xxxx" python3 {baseDir}/fetcher.py --dry-run --verbose
+python3 {baseDir}/fetcher.py --dry-run --verbose
 ```
 
 ### Custom config and output directory
